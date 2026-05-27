@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+  <title>Ravenna Weather</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #111;
+      --surface: #1c1c1c;
+      --surface2: #272727;
+      --border: #333;
+      --text: #e8e8e8;
+      --muted: #777;
+      --accent: #4caf50;
+      --go-bg: #1b5e2022;
+      --go-border: #4caf50;
+      --no-bg: #b71c1c22;
+      --no-border: #ef5350;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      min-height: 100vh;
+      padding: 14px;
+      max-width: 680px;
+      margin: 0 auto;
+    }
+
+    /* ── Header ── */
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      padding-bottom: 14px;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 20px;
+    }
+
+    .header h1 { font-size: 1.25rem; font-weight: 700; }
+    .header .sub { font-size: 0.72rem; color: var(--muted); margin-top: 3px; }
+
+    .btn-refresh {
+      background: var(--surface2);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 7px;
+      padding: 8px 13px;
+      font-size: 0.82rem;
+      font-weight: 600;
+      cursor: pointer;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+    .btn-refresh:hover { border-color: var(--accent); color: var(--accent); }
+    .btn-refresh:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    /* ── Criteria bar ── */
+    .criteria {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-bottom: 20px;
+    }
+    .crit-chip {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 4px 11px;
+      font-size: 0.72rem;
+      color: var(--muted);
+    }
+    .crit-chip b { color: var(--text); }
+
+    /* ── Card grid ── */
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 12px;
+    }
+    @media (max-width: 420px) { .grid { grid-template-columns: 1fr; } }
+
+    .card {
+      border-radius: 10px;
+      border: 1.5px solid var(--border);
+      background: var(--surface);
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .card.go  { border-color: var(--go-border); background: color-mix(in srgb, #4caf50 6%, var(--surface)); }
+    .card.nogo { border-color: var(--no-border); background: color-mix(in srgb, #ef5350 6%, var(--surface)); }
+
+    .card-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+    }
+
+    .card-day  { font-size: 0.95rem; font-weight: 700; }
+    .card-date { font-size: 0.75rem; color: var(--muted); margin-top: 2px; }
+
+    .verdict { font-size: 2rem; line-height: 1; }
+
+    .card-stats {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+
+    .stat-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 0.8rem;
+    }
+    .stat-label { color: var(--muted); }
+    .stat-val   { font-weight: 600; }
+
+    .stat-val.hot  { color: #ef9a9a; }
+    .stat-val.cold { color: #90caf9; }
+    .stat-val.good { color: #a5d6a7; }
+    .stat-val.wet  { color: #ef9a9a; }
+    .stat-val.dry  { color: #a5d6a7; }
+
+    /* ── States ── */
+    .loading, .error, .empty {
+      text-align: center;
+      padding: 48px 16px;
+      color: var(--muted);
+      font-size: 0.9rem;
+    }
+    .error { color: #ef9a9a; }
+
+    .spinner {
+      width: 28px; height: 28px;
+      border: 3px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      margin: 0 auto 12px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .updated {
+      text-align: center;
+      font-size: 0.68rem;
+      color: #444;
+      margin-top: 20px;
+    }
+  </style>
+</head>
+<body>
+
+<div class="header">
+  <div>
+    <h1>Ravenna Weather</h1>
+    <div class="sub">Thu · Fri · Sat · Sun &nbsp;·&nbsp; 9 am – 2 pm window</div>
+  </div>
+  <button class="btn-refresh" id="refreshBtn" onclick="load()">Refresh</button>
+</div>
+
+<div class="criteria">
+  <div class="crit-chip">🌡 <b>65–90°F</b> avg during round</div>
+  <div class="crit-chip">🌧 <b>&lt;50%</b> rain chance</div>
+</div>
+
+<div id="content"></div>
+<div class="updated" id="updatedAt"></div>
+
+<script>
+  const LAT  = 39.494;
+  const LON  = -104.976;
+  const DAYS = [0, 4, 5, 6]; // Sun=0, Thu=4, Fri=5, Sat=6
+  const DAY_NAMES = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+  const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+  async function load() {
+    const btn = document.getElementById('refreshBtn');
+    btn.disabled = true;
+    document.getElementById('content').innerHTML = `
+      <div class="loading">
+        <div class="spinner"></div>
+        Fetching forecast…
+      </div>`;
+    document.getElementById('updatedAt').textContent = '';
+
+    try {
+      const url = [
+        'https://api.open-meteo.com/v1/forecast',
+        '?latitude=' + LAT,
+        '&longitude=' + LON,
+        '&hourly=temperature_2m,precipitation_probability,windspeed_10m',
+        '&temperature_unit=fahrenheit',
+        '&windspeed_unit=mph',
+        '&timezone=America%2FDenver',
+        '&forecast_days=10'
+      ].join('');
+
+      const res = await fetch(url);
+      if (!res.ok) throw new Error('API error ' + res.status);
+      const data = await res.json();
+      render(process(data));
+      document.getElementById('updatedAt').textContent =
+        'Updated ' + new Date().toLocaleTimeString('en-US', {hour:'numeric', minute:'2-digit', timeZoneName:'short'});
+    } catch (e) {
+      document.getElementById('content').innerHTML =
+        `<div class="error">Could not load forecast.<br>${e.message}</div>`;
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  function process(data) {
+    const times = data.hourly.time;
+    const temps  = data.hourly.temperature_2m;
+    const rain   = data.hourly.precipitation_probability;
+    const wind   = data.hourly.windspeed_10m;
+
+    // Group hours by date
+    const byDate = {};
+    times.forEach((t, i) => {
+      const date = t.slice(0, 10);
+      const hour = parseInt(t.slice(11, 13));
+      if (!byDate[date]) byDate[date] = [];
+      byDate[date].push({ hour, temp: temps[i], rain: rain[i], wind: wind[i] });
+    });
+
+    const todayStr = new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD in local time
+    const results = [];
+
+    Object.keys(byDate).sort().forEach(dateStr => {
+      if (dateStr < todayStr) return;
+
+      // Parse date without timezone shift
+      const [y, m, d] = dateStr.split('-').map(Number);
+      const date = new Date(y, m - 1, d);
+      const dow = date.getDay();
+      if (!DAYS.includes(dow)) return;
+
+      // Window: 9am (hour 9) through 2pm (hour 14) inclusive = 6 data points
+      const window = byDate[dateStr].filter(h => h.hour >= 9 && h.hour <= 14);
+      if (!window.length) return;
+
+      const avgTemp = window.reduce((s, h) => s + h.temp, 0) / window.length;
+      const minTemp = Math.round(Math.min(...window.map(h => h.temp)));
+      const maxTemp = Math.round(Math.max(...window.map(h => h.temp)));
+      const maxRain = Math.max(...window.map(h => h.rain));
+      const avgWind = Math.round(window.reduce((s, h) => s + h.wind, 0) / window.length);
+      const roundedAvg = Math.round(avgTemp);
+
+      const thumbsUp = roundedAvg >= 65 && roundedAvg <= 90 && maxRain < 50;
+
+      results.push({ dateStr, date, dow, roundedAvg, minTemp, maxTemp, maxRain, avgWind, thumbsUp });
+    });
+
+    return results;
+  }
+
+  function render(days) {
+    const el = document.getElementById('content');
+    if (!days.length) {
+      el.innerHTML = '<div class="empty">No Thu/Fri/Sat/Sun found in the forecast window.</div>';
+      return;
+    }
+
+    const cards = days.map(d => {
+      const cls    = d.thumbsUp ? 'go' : 'nogo';
+      const icon   = d.thumbsUp ? '✅' : '❌';
+      const month  = MONTH_NAMES[d.date.getMonth()];
+      const day    = d.date.getDate();
+
+      const tempClass = d.roundedAvg > 90 ? 'hot' : d.roundedAvg < 65 ? 'cold' : 'good';
+      const rainClass = d.maxRain >= 50 ? 'wet' : 'dry';
+
+      // Reason line when thumbs down
+      let reasons = [];
+      if (d.roundedAvg < 65) reasons.push('too cool');
+      if (d.roundedAvg > 90) reasons.push('too hot');
+      if (d.maxRain >= 50)   reasons.push('rain risk');
+      const reasonHtml = !d.thumbsUp
+        ? `<div class="stat-row"><span class="stat-label" style="color:#ef9a9a;font-size:0.72rem">${reasons.join(' · ')}</span></div>`
+        : '';
+
+      return `
+        <div class="card ${cls}">
+          <div class="card-top">
+            <div>
+              <div class="card-day">${DAY_NAMES[d.dow]}</div>
+              <div class="card-date">${month} ${day}</div>
+            </div>
+            <div class="verdict">${icon}</div>
+          </div>
+          <div class="card-stats">
+            <div class="stat-row">
+              <span class="stat-label">Temp (avg)</span>
+              <span class="stat-val ${tempClass}">${d.roundedAvg}°F</span>
+            </div>
+            <div class="stat-row">
+              <span class="stat-label">Range</span>
+              <span class="stat-val">${d.minTemp}–${d.maxTemp}°F</span>
+            </div>
+            <div class="stat-row">
+              <span class="stat-label">Rain (max)</span>
+              <span class="stat-val ${rainClass}">${d.maxRain}%</span>
+            </div>
+            <div class="stat-row">
+              <span class="stat-label">Wind (avg)</span>
+              <span class="stat-val">${d.avgWind} mph</span>
+            </div>
+            ${reasonHtml}
+          </div>
+        </div>`;
+    }).join('');
+
+    el.innerHTML = `<div class="grid">${cards}</div>`;
+  }
+
+  load();
+</script>
+</body>
+</html>
